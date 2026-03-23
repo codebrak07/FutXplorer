@@ -29,7 +29,7 @@ This project uses the API-Football service.
 * Data Format: JSON
 
 Example endpoint:
-https://v3.football.api-sports.io/players?search=Ronaldo
+https://v3.football.api-sports.io/players?search=Ronaldo&season=2023
 
 Authentication is required using an API key passed in request headers.
 
@@ -39,7 +39,7 @@ Authentication is required using an API key passed in request headers.
 
 ### Search
 
-* Search players by name (e.g., Cristiano Ronaldo, Messi)
+* Search players by name (e.g., Cristiano Ronaldo, Rodrygo)
 
 ### Filtering
 
@@ -79,19 +79,20 @@ Authentication is required using an API key passed in request headers.
 
 ## Project Structure
 
-football-player-explorer/
-
-* index.html
-* style.css
-* script.js
-* README.md
+```
+FutXplorer/
+├── index.html
+├── style.css
+├── script.js
+└── README.md
+```
 
 ---
 
 ## How to Run the Project
 
 1. Clone the repository:
-   git clone https://github.com/codebrak07/football-player-explorer
+   git clone https://github.com/codebrak07/FutXplorer
 
 2. Open the project folder
 
