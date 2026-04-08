@@ -1,13 +1,19 @@
 const API_KEYS = [
+  "6a5be7d9b3a9cc80a27d739a4097684b",
   "69c0582de4e07ee759ecb0dbde59287c",
   "1509d5bc8a24bb61a714137e58415829",
   "38bdff2227832f2dff2c0d4d70bfbb1e"
 ];
 let currentKeyIndex = 0;
+let activeSearchId = 0;
 const BASE_URL = "https://v3.football.api-sports.io";
-const SEASON = "2024";
-const SEARCH_LEAGUES = [253, 307, 39, 140, 135, 78, 61];
-const LIFETIME_SEASONS = ["2024", "2023", "2022"];
+const SEASON = "2025";
+const SEARCH_LEAGUES = [307, 253, 39, 140, 135, 78, 61]; 
+const LIFETIME_SEASONS = ["2025", "2024", "2023"];
+
+let allPlayers = [];
+let favorites = JSON.parse(localStorage.getItem("futFavs")) || [];
+let searchTimeout = null;
 
 const searchInput = document.getElementById("searchInput");
 const searchBtn = document.getElementById("searchBtn");
@@ -15,12 +21,19 @@ const loader = document.getElementById("loader");
 const errorBox = document.getElementById("errorBox");
 const resultsSection = document.getElementById("resultsSection");
 const emptyBox = document.getElementById("emptyBox");
+const controls = document.getElementById("controls");
+
+const posFilter = document.getElementById("posFilter");
+const leagueFilter = document.getElementById("leagueFilter");
+const natFilter = document.getElementById("natFilter");
+const sortBy = document.getElementById("sortBy");
 
 function showLoader() {
   loader.classList.remove("hidden");
   errorBox.classList.add("hidden");
   resultsSection.classList.add("hidden");
   emptyBox.classList.add("hidden");
+  controls.classList.add("hidden");
   resultsSection.innerHTML = "";
 }
 
@@ -31,11 +44,6 @@ function hideLoader() {
 function showError(msg) {
   errorBox.textContent = msg;
   errorBox.classList.remove("hidden");
-}
-
-function getStat(statistics, group, key) {
-  if (!statistics || !statistics.length) return 0;
-  return statistics[0]?.[group]?.[key] || 0;
 }
 
 function getLifetimeStat(statistics, group, key) {
@@ -50,6 +58,17 @@ function getLifetimeStat(statistics, group, key) {
   return total;
 }
 
+function toggleFavorite(playerId) {
+  const index = favorites.indexOf(playerId);
+  if (index > -1) {
+    favorites.splice(index, 1);
+  } else {
+    favorites.push(playerId);
+  }
+  localStorage.setItem("futFavs", JSON.stringify(favorites));
+  applyFiltersAndSort();
+}
+
 function buildCard(entry, index) {
   const p = entry.player;
   const stats = entry.statistics;
@@ -59,19 +78,28 @@ function buildCard(entry, index) {
   const apps = getLifetimeStat(stats, "games", "appearences");
   const ratingSum = getLifetimeStat(stats, "games", "rating");
   const ratingCount = stats ? stats.filter(function (s) { return s?.games?.rating; }).length : 0;
-  const rating = ratingCount > 0 ? (ratingSum / ratingCount) : null;
+  const rating = ratingCount > 0 ? (ratingSum / ratingCount) : 0;
+  
   const team = stats?.[0]?.team?.name || "—";
   const teamLogo = stats?.[0]?.team?.logo || "";
   const league = stats?.[0]?.league?.name || "—";
   const position = stats?.[0]?.games?.position || "—";
   const nationality = p.nationality || "—";
-  const age = p.age || "—";
-  const height = p.height || "—";
-  const weight = p.weight || "—";
+  
+  const isFav = favorites.includes(p.id);
 
   const card = document.createElement("div");
   card.classList.add("player-card");
   card.style.animationDelay = `${index * 0.07}s`;
+
+  const favBtn = document.createElement("button");
+  favBtn.classList.add("fav-btn");
+  if (isFav) favBtn.classList.add("active");
+  favBtn.innerHTML = "❤️";
+  favBtn.onclick = function(e) {
+    e.stopPropagation();
+    toggleFavorite(p.id);
+  };
 
   const banner = document.createElement("div");
   banner.classList.add("card-banner");
@@ -102,17 +130,9 @@ function buildCard(entry, index) {
   natEl.classList.add("player-nat");
   natEl.textContent = nationality;
 
-  const yearsLabel = document.createElement("div");
-  yearsLabel.style.fontSize = "10px";
-  yearsLabel.style.color = "#00ffa3";
-  yearsLabel.style.marginTop = "4px";
-  yearsLabel.style.fontWeight = "600";
-  yearsLabel.textContent = `STATS: ${LIFETIME_SEASONS[LIFETIME_SEASONS.length-1]} - ${LIFETIME_SEASONS[0]}`;
-
   detailsDiv.appendChild(nameEl);
   detailsDiv.appendChild(posEl);
   detailsDiv.appendChild(natEl);
-  detailsDiv.appendChild(yearsLabel);
   identity.appendChild(photo);
   identity.appendChild(detailsDiv);
 
@@ -145,23 +165,20 @@ function buildCard(entry, index) {
   statsGrid.classList.add("card-stats");
 
   const statItems = [
-    { num: goals, label: "Last 3 Sea. Goals" },
-    { num: assists, label: "Last 3 Sea. Assists" },
-    { num: apps, label: "Last 3 Sea. Matches" },
+    { num: goals, label: "Total Goals" },
+    { num: assists, label: "Total Assists" },
+    { num: apps, label: "Total matches" },
   ];
 
   statItems.forEach(function (item) {
     const cell = document.createElement("div");
     cell.classList.add("stat-cell");
-
     const numEl = document.createElement("div");
     numEl.classList.add("stat-num");
     numEl.textContent = item.num ?? 0;
-
     const labelEl = document.createElement("div");
     labelEl.classList.add("stat-label");
     labelEl.textContent = item.label;
-
     cell.appendChild(numEl);
     cell.appendChild(labelEl);
     statsGrid.appendChild(cell);
@@ -169,31 +186,26 @@ function buildCard(entry, index) {
 
   const bio = document.createElement("div");
   bio.classList.add("card-bio");
-
   const bioItems = [
-    { label: "Age", value: age },
-    { label: "Height", value: height },
-    { label: "Weight", value: weight },
-    { label: "Rating", value: rating ? rating.toFixed(1) : "—" },
+    { label: "Age", value: p.age || "—" },
+    { label: "Rating", value: rating > 0 ? rating.toFixed(2) : "—" },
   ];
 
   bioItems.forEach(function (item) {
     const bioItem = document.createElement("div");
     bioItem.classList.add("bio-item");
-
     const bioLabel = document.createElement("span");
     bioLabel.classList.add("bio-label");
     bioLabel.textContent = item.label;
-
     const bioVal = document.createElement("span");
     bioVal.classList.add("bio-value");
     bioVal.textContent = item.value;
-
     bioItem.appendChild(bioLabel);
     bioItem.appendChild(bioVal);
     bio.appendChild(bioItem);
   });
 
+  card.appendChild(favBtn);
   card.appendChild(banner);
   card.appendChild(identity);
   card.appendChild(clubRow);
@@ -203,7 +215,75 @@ function buildCard(entry, index) {
   return card;
 }
 
-async function apiFetch(url) {
+function updateFilterOptions() {
+  const leagues = [...new Set(allPlayers.map(p => p.statistics[0]?.league?.name).filter(Boolean))];
+  const nationalities = [...new Set(allPlayers.map(p => p.player.nationality).filter(Boolean))];
+
+  leagueFilter.innerHTML = '<option value="">All Leagues</option>';
+  leagues.forEach(l => {
+    const opt = document.createElement("option");
+    opt.value = l;
+    opt.textContent = l;
+    leagueFilter.appendChild(opt);
+  });
+
+  natFilter.innerHTML = '<option value="">All Nationalities</option>';
+  nationalities.forEach(n => {
+    const opt = document.createElement("option");
+    opt.value = n;
+    opt.textContent = n;
+    natFilter.appendChild(opt);
+  });
+}
+
+function applyFiltersAndSort() {
+  const posValue = posFilter.value;
+  const leagueValue = leagueFilter.value;
+  const natValue = natFilter.value;
+  const sortValue = sortBy.value;
+
+  let filtered = allPlayers.filter(function(entry) {
+    const matchesPos = !posValue || (entry.statistics[0]?.games?.position || "").includes(posValue);
+    const matchesLeague = !leagueFilter.value || entry.statistics[0]?.league?.name === leagueValue;
+    const matchesNat = !natFilter.value || entry.player.nationality === natValue;
+    return matchesPos && matchesLeague && matchesNat;
+  });
+
+  filtered.sort(function(a, b) {
+    if (sortValue === "goals") {
+      return getLifetimeStat(b.statistics, "goals", "total") - getLifetimeStat(a.statistics, "goals", "total");
+    }
+    if (sortValue === "assists") {
+      return getLifetimeStat(b.statistics, "goals", "assists") - getLifetimeStat(a.statistics, "goals", "assists");
+    }
+    if (sortValue === "appearences") {
+      return getLifetimeStat(b.statistics, "games", "appearences") - getLifetimeStat(a.statistics, "games", "appearences");
+    }
+    if (sortValue === "rating") {
+      const rA = getLifetimeStat(a.statistics, "games", "rating") / (a.statistics.filter(s => s?.games?.rating).length || 1);
+      const rB = getLifetimeStat(b.statistics, "games", "rating") / (b.statistics.filter(s => s?.games?.rating).length || 1);
+      return rB - rA;
+    }
+    return 0;
+  });
+
+  resultsSection.innerHTML = "";
+  if (filtered.length === 0) {
+    emptyBox.classList.remove("hidden");
+  } else {
+    emptyBox.classList.add("hidden");
+    filtered.map(function(entry, i) {
+      resultsSection.appendChild(buildCard(entry, i));
+    });
+  }
+}
+
+async function apiFetch(url, searchId) {
+  if (searchId && searchId !== activeSearchId) return null;
+  
+  const cached = sessionStorage.getItem(url);
+  if (cached) return JSON.parse(cached);
+
   const key = API_KEYS[currentKeyIndex];
   try {
     const res = await fetch(url, {
@@ -214,95 +294,101 @@ async function apiFetch(url) {
     if (res.status === 429 || res.status === 403) {
       if (currentKeyIndex < API_KEYS.length - 1) {
         currentKeyIndex++;
-        console.warn("Key fail/blocked, switching to next key...");
-        return await apiFetch(url);
+        return await apiFetch(url, searchId);
       }
+      throw new Error("LIMIT_REACHED");
     }
 
     const data = await res.json();
     if (data.errors && Object.keys(data.errors).length > 0) {
-      const errorStr = JSON.stringify(data.errors).toLowerCase();
-      if (currentKeyIndex < API_KEYS.length - 1 && 
-          (errorStr.includes("limit") || errorStr.includes("requests") || errorStr.includes("account") || errorStr.includes("access"))) {
-        currentKeyIndex++;
-        console.warn("Key error in data, switching to next key...");
-        return await apiFetch(url);
+      const err = JSON.stringify(data.errors).toLowerCase();
+      if (err.includes("limit") || err.includes("requests") || err.includes("account")) {
+        if (currentKeyIndex < API_KEYS.length - 1) {
+          currentKeyIndex++;
+          return await apiFetch(url, searchId);
+        }
+        throw new Error("LIMIT_REACHED");
       }
+    }
+    
+    if (data && data.response && data.response.length > 0) {
+      sessionStorage.setItem(url, JSON.stringify(data));
     }
     return data;
   } catch (err) {
+    if (err.message === "LIMIT_REACHED") throw err;
     return { response: [] };
   }
 }
 
 async function searchPlayers(query) {
   const trimmed = query.trim();
-  if (!trimmed) return;
+  if (!trimmed || trimmed.length < 3) return;
 
+  const currentId = ++activeSearchId;
   showLoader();
+  allPlayers = [];
   currentKeyIndex = 0;
 
   try {
-    let foundPlayer = null;
+    let playersPool = [];
     for (let i = 0; i < SEARCH_LEAGUES.length; i++) {
-      console.log("Searching league ID:", SEARCH_LEAGUES[i]);
-      const data = await apiFetch(
-        `${BASE_URL}/players?search=${encodeURIComponent(trimmed)}&season=${SEASON}&league=${SEARCH_LEAGUES[i]}`
-      );
-      
-      if (data.response && data.response.length > 0) {
-        foundPlayer = data.response[0];
-        break;
+      if (currentId !== activeSearchId) return;
+      const data = await apiFetch(`${BASE_URL}/players?search=${encodeURIComponent(trimmed)}&league=${SEARCH_LEAGUES[i]}`, currentId);
+      if (data && data.response && data.response.length > 0) {
+        playersPool = playersPool.concat(data.response);
       }
-      // Wait 2 seconds between league searches to stay under 10 calls/min limit
+      if (playersPool.length >= 5) break;
       await new Promise(r => setTimeout(r, 2000));
     }
 
-    if (!foundPlayer) {
-      hideLoader();
-      emptyBox.classList.remove("hidden");
-      return;
-    }
+    const uniquePlayers = playersPool.filter((v, i, a) => a.findIndex(t => t.player.id === v.player.id) === i).slice(0, 3);
 
-    const playerId = foundPlayer.player.id;
-    const allStats = [];
-    
-    for (const season of LIFETIME_SEASONS) {
-      // Wait between calls
-      await new Promise(r => setTimeout(r, 2000));
-      const data = await apiFetch(`${BASE_URL}/players?id=${playerId}&season=${season}`);
-      if (data.response && data.response.length > 0) {
-        allStats.push.apply(allStats, data.response[0].statistics);
+    for (const p of uniquePlayers) {
+      if (currentId !== activeSearchId) return;
+      const stats = [];
+      for (const s of LIFETIME_SEASONS) {
+        if (currentId !== activeSearchId) return;
+        await new Promise(r => setTimeout(r, 1200));
+        const d = await apiFetch(`${BASE_URL}/players?id=${p.player.id}&season=${s}`, currentId);
+        if (d && d.response && d.response.length > 0) {
+          stats.push.apply(stats, d.response[0].statistics);
+        }
       }
+      allPlayers.push({ player: p.player, statistics: stats });
     }
 
-    const playerEntry = {
-      player: foundPlayer.player,
-      statistics: allStats
-    };
-
+    if (currentId !== activeSearchId) return;
     hideLoader();
-    if (allStats.length === 0) {
+    if (allPlayers.length === 0) {
       emptyBox.classList.remove("hidden");
-      return;
+    } else {
+      controls.classList.remove("hidden");
+      resultsSection.classList.remove("hidden");
+      updateFilterOptions();
+      applyFiltersAndSort();
     }
-
-    resultsSection.classList.remove("hidden");
-    const card = buildCard(playerEntry, 0);
-    resultsSection.appendChild(card);
-
   } catch (err) {
-    hideLoader();
-    showError("Something went wrong. Please try again in 1 minute.");
+    if (currentId === activeSearchId) {
+      hideLoader();
+      const msg = err.message === "LIMIT_REACHED" ? "All API limits reached. Try again in 1 minute." : "Something went wrong.";
+      showError(msg);
+    }
   }
 }
 
-searchBtn.addEventListener("click", function () {
+function handleInput() {
+  clearTimeout(searchTimeout);
+  searchTimeout = setTimeout(() => {
+    searchPlayers(searchInput.value);
+  }, 1000);
+}
+
+searchInput.addEventListener("input", handleInput);
+searchBtn.addEventListener("click", () => {
+  clearTimeout(searchTimeout);
   searchPlayers(searchInput.value);
 });
-
-searchInput.addEventListener("keydown", function (e) {
-  if (e.key === "Enter") {
-    searchPlayers(searchInput.value);
-  }
+[posFilter, leagueFilter, natFilter, sortBy].forEach(el => {
+  el.addEventListener("change", applyFiltersAndSort);
 });

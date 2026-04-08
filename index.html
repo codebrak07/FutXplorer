@@ -34,6 +34,32 @@
 
     <div id="errorBox" class="error-box hidden"></div>
 
+    <div id="controls" class="controls hidden">
+      <div class="filter-group">
+        <select id="posFilter">
+          <option value="">All Positions</option>
+          <option value="Forward">Forward</option>
+          <option value="Midfielder">Midfielder</option>
+          <option value="Defender">Defender</option>
+          <option value="Goalkeeper">Goalkeeper</option>
+        </select>
+        <select id="leagueFilter">
+          <option value="">All Leagues</option>
+        </select>
+        <select id="natFilter">
+          <option value="">All Nationalities</option>
+        </select>
+      </div>
+      <div class="sort-group">
+        <select id="sortBy">
+          <option value="rating">Sort by Rating</option>
+          <option value="goals">Sort by Goals</option>
+          <option value="assists">Sort by Assists</option>
+          <option value="appearences">Sort by Matches</option>
+        </select>
+      </div>
+    </div>
+
     <section id="resultsSection" class="results hidden"></section>
 
     <div id="emptyBox" class="empty hidden">
