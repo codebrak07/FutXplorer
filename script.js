@@ -22,6 +22,7 @@ const errorBox = document.getElementById("errorBox");
 const resultsSection = document.getElementById("resultsSection");
 const emptyBox = document.getElementById("emptyBox");
 const controls = document.getElementById("controls");
+const themeToggle = document.getElementById("themeToggle");
 
 const posFilter = document.getElementById("posFilter");
 const leagueFilter = document.getElementById("leagueFilter");
@@ -242,7 +243,7 @@ function applyFiltersAndSort() {
   const natValue = natFilter.value;
   const sortValue = sortBy.value;
 
-  let filtered = allPlayers.filter(function(entry) {
+  const filtered = allPlayers.filter(function(entry) {
     const matchesPos = !posValue || (entry.statistics[0]?.games?.position || "").includes(posValue);
     const matchesLeague = !leagueFilter.value || entry.statistics[0]?.league?.name === leagueValue;
     const matchesNat = !natFilter.value || entry.player.nationality === natValue;
@@ -330,32 +331,42 @@ async function searchPlayers(query) {
   allPlayers = [];
   currentKeyIndex = 0;
 
-  try {
-    let playersPool = [];
-    for (let i = 0; i < SEARCH_LEAGUES.length; i++) {
-      if (currentId !== activeSearchId) return;
-      const data = await apiFetch(`${BASE_URL}/players?search=${encodeURIComponent(trimmed)}&league=${SEARCH_LEAGUES[i]}`, currentId);
-      if (data && data.response && data.response.length > 0) {
-        playersPool = playersPool.concat(data.response);
-      }
-      if (playersPool.length >= 5) break;
-      await new Promise(r => setTimeout(r, 2000));
+  async function searchRecursively(leagueIdx, pool) {
+    if (leagueIdx >= SEARCH_LEAGUES.length || currentId !== activeSearchId || pool.length >= 5) {
+      return pool;
+    }
+    const leagueId = SEARCH_LEAGUES[leagueIdx];
+    const data = await apiFetch(`${BASE_URL}/players?search=${encodeURIComponent(trimmed)}&league=${leagueId}`, currentId);
+    if (data && data.response && data.response.length > 0) {
+      pool = pool.concat(data.response);
+    }
+    await new Promise(r => setTimeout(r, 2000));
+    return searchRecursively(leagueIdx + 1, pool);
+  }
+
+  async function fetchStatsRecursively(players, pIdx, sIdx, statsAcc) {
+    if (currentId !== activeSearchId || pIdx >= players.length) return;
+    const p = players[pIdx];
+
+    if (sIdx >= LIFETIME_SEASONS.length) {
+      allPlayers.push({ player: p.player, statistics: statsAcc });
+      return fetchStatsRecursively(players, pIdx + 1, 0, []);
     }
 
-    const uniquePlayers = playersPool.filter((v, i, a) => a.findIndex(t => t.player.id === v.player.id) === i).slice(0, 3);
+    await new Promise(r => setTimeout(r, 1200));
+    const d = await apiFetch(`${BASE_URL}/players?id=${p.player.id}&season=${LIFETIME_SEASONS[sIdx]}`, currentId);
+    if (d && d.response && d.response.length > 0) {
+      statsAcc.push.apply(statsAcc, d.response[0].statistics);
+    }
+    return fetchStatsRecursively(players, pIdx, sIdx + 1, statsAcc);
+  }
 
-    for (const p of uniquePlayers) {
-      if (currentId !== activeSearchId) return;
-      const stats = [];
-      for (const s of LIFETIME_SEASONS) {
-        if (currentId !== activeSearchId) return;
-        await new Promise(r => setTimeout(r, 1200));
-        const d = await apiFetch(`${BASE_URL}/players?id=${p.player.id}&season=${s}`, currentId);
-        if (d && d.response && d.response.length > 0) {
-          stats.push.apply(stats, d.response[0].statistics);
-        }
-      }
-      allPlayers.push({ player: p.player, statistics: stats });
+  try {
+    const rawPool = await searchRecursively(0, []);
+    const uniquePool = rawPool.filter((v, i, a) => a.findIndex(t => t.player.id === v.player.id) === i).slice(0, 3);
+    
+    if (uniquePool.length > 0) {
+      await fetchStatsRecursively(uniquePool, 0, 0, []);
     }
 
     if (currentId !== activeSearchId) return;
@@ -384,11 +395,23 @@ function handleInput() {
   }, 1000);
 }
 
+function toggleTheme() {
+  const isLight = document.body.classList.toggle("light-mode");
+  localStorage.setItem("futTheme", isLight ? "light" : "dark");
+  themeToggle.textContent = isLight ? "🌙" : "🌓";
+}
+
+if (localStorage.getItem("futTheme") === "light") {
+  document.body.classList.add("light-mode");
+  themeToggle.textContent = "🌙";
+}
+
 searchInput.addEventListener("input", handleInput);
 searchBtn.addEventListener("click", () => {
   clearTimeout(searchTimeout);
   searchPlayers(searchInput.value);
 });
+themeToggle.addEventListener("click", toggleTheme);
 [posFilter, leagueFilter, natFilter, sortBy].forEach(el => {
   el.addEventListener("change", applyFiltersAndSort);
 });
