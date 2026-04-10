@@ -74,7 +74,7 @@ function buildCard(entry, index) {
   const p = entry.player;
   const stats = entry.statistics;
 
-  const goals = getLifetimeStat(stats, "goals", "total");
+  const goals = getLifetimeStat(stats, "goals", "last 4 seasons");
   const assists = getLifetimeStat(stats, "goals", "assists");
   const apps = getLifetimeStat(stats, "games", "appearences");
   const ratingSum = getLifetimeStat(stats, "games", "rating");
