@@ -39,11 +39,11 @@ Authentication is required using an API key passed in request headers.
 
 ### Search
 
-* Search players by name (e.g., Cristiano Ronaldo, Rodrygo)
+* Search players by name (e.g., Cristiano Ronaldo, Rodrygo), Øzil, Bale
 
 ### Filtering
 
-* Filter players based on:
+* Filter players based on last 3-4 seasons:
 
   * Goals scored
   * Assists
